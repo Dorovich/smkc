@@ -1,4 +1,4 @@
-Simple
-Mpd
-Keyboard
+Simple \\
+Mpd \\
+Keyboard \\
 Control

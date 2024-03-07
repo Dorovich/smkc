@@ -5,21 +5,12 @@
 #include <signal.h>
 #include <mpd/client.h>
 
-/*
-  info en:
-  https://envs.sh/hEl
-  https://envs.sh/hEk
- */
-
-char *translate[] = {
-	['a'] = "test"
-};
-
-struct mpd_connection *conn = NULL;
+#define LENGTH(a) (sizeof(a)/sizeof(a[0]))
 
 struct termios default_info;
 
-void use_canon (int enable) {
+void use_canon (int enable)
+{
 	if (enable) {
 		tcsetattr(0, TCSANOW, &default_info);
 	} else {
@@ -33,7 +24,10 @@ void use_canon (int enable) {
 	}
 }
 
-int use_mpd (int enable) {
+struct mpd_connection *conn = NULL;
+
+int use_mpd (int enable)
+{
 	if (enable) {
 		if (conn) return -1;
 		conn = mpd_connection_new(NULL, 0, 0);
@@ -55,11 +49,31 @@ int use_mpd (int enable) {
 	return 0;
 }
 
-void handle_int (int signum) {
-	puts("SALIENDO...");
+void clean_exit (int code)
+{
 	use_mpd(0);
 	use_canon(1);
-	exit(2);
+	exit(code);
+}
+
+void handle_int (int signum)
+{
+	clean_exit(2);
+}
+
+const char *action[] = {
+	['a'] = "alfa",
+	['b'] = "beta",
+	['c'] = "charlie",
+	['d'] = "delta",
+	['e'] = "echo",
+};
+
+const char *translate (char code)
+{
+	if (code < 0 || code >= LENGTH(action)-1) return NULL;
+	printf("%d: %s\n", code, action[code]);
+	return action[code];
 }
 
 int main (int argc, char *argv[]) {
@@ -72,13 +86,14 @@ int main (int argc, char *argv[]) {
 	use_canon(0);
 	use_mpd(1);
 
-	// repetir carácteres escritos
+	puts("Pulsa CTRL-C para salir.");
+
+	// traducir
 	int code = 0, size;
-	char code_fmt[6];
-	while (code == 0) {
+	char code_fmt[64];
+	while (1) {
 		code = getchar();
-		size = sprintf(code_fmt, "%s\n", translate[code]);
-		write(1, code_fmt, size);
+		translate(code);
 	}
 
 	use_mpd(0);
