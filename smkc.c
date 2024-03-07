@@ -71,7 +71,7 @@ const char *action[] = {
 
 const char *translate (char code)
 {
-	if (code < 0 || code >= LENGTH(action)-1) return NULL;
+	if (code < 0 || code >= LENGTH(action)) return NULL;
 	printf("%d: %s\n", code, action[code]);
 	return action[code];
 }
