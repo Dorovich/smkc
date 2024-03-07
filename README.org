@@ -1,4 +1,1 @@
-Simple \\
-Mpd \\
-Keyboard \\
-Control
+/Simple Mpd Keyboard Control/
