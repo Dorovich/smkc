@@ -1,4 +1,5 @@
 #include <termios.h>
+#include <string.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -6,6 +7,8 @@
 #include <mpd/client.h>
 
 #define LENGTH(a) (sizeof(a)/sizeof(a[0]))
+
+int debug = 0;
 
 struct termios default_info;
 
@@ -61,19 +64,35 @@ void handle_int (int signum)
 	clean_exit(2);
 }
 
-const char *action[] = {
-	['a'] = "alfa",
-	['b'] = "beta",
-	['c'] = "charlie",
-	['d'] = "delta",
-	['e'] = "echo",
+union key_action {
+	const char *f;
+	void (*c)(void);
 };
 
-const char *translate (char code)
+bool pause_mode = true;
+
+void toggle_pause () {
+	if (!mpd_run_pause(conn, pause_mode))
+		clean_exit(10);
+	else pause_mode = !pause_mode;
+}
+
+void quit () {
+	clean_exit(0);
+}
+
+union key_action action[] = {
+	['p'] = { .c = toggle_pause },
+	['q'] = { .c = quit },
+};
+
+const union key_action *translate (char code)
 {
+	if (debug) fprintf(stdout, "[DEBUG] # %d\n", code);
 	if (code < 0 || code >= LENGTH(action)) return NULL;
-	printf("%d: %s\n", code, action[code]);
-	return action[code];
+	union key_action *ka = &action[code];
+	if (ka && ka->c) ka->c();
+	return ka;
 }
 
 int main (int argc, char *argv[]) {
@@ -82,21 +101,18 @@ int main (int argc, char *argv[]) {
 	int res = sigaction(SIGINT, &sa, NULL);
 	if (res < 0) exit(1);
 
+	for (int i = 1; i < argc; ++i) {
+		if (!strcmp(argv[i], "-d")) debug = 1;
+	}
+
 	tcgetattr(0, &default_info);
 	use_canon(0);
 	use_mpd(1);
 
-	puts("Pulsa CTRL-C para salir.");
+	fprintf(stdout, "Pulsa CTRL-C para salir.\n");
 
 	// traducir
-	int code = 0, size;
-	char code_fmt[64];
-	while (1) {
-		code = getchar();
-		translate(code);
-	}
+	while (1) translate(getchar());
 
-	use_mpd(0);
-	use_canon(1);
-	return 0;
+	clean_exit(0);
 }
