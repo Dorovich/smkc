@@ -1,4 +1,4 @@
-all: cnt
+all: smkc
 
-cnt: cnt.c
-	gcc -o cnt cnt.c -lmpdclient
+smkc: smkc.c
+	gcc -o smkc smkc.c -lmpdclient
