@@ -8,49 +8,55 @@
 
 #define LENGTH(a) (sizeof(a)/sizeof(a[0]))
 
+int use_canon (int enable);
+int use_mpd (int enable);
+void clean_exit (int code);
+void handle_int (int signum);
+union key_action *translate (char code);
+
+void quit ();
+void toggle_pause ();
+void hola ();
+
+union key_action {
+	const char *snd; // ruta de un archivo de audio
+	void (*cmd)(); // dirección de una función
+};
+
+union key_action action[] = {
+	['p'] = { .cmd = toggle_pause },
+	['q'] = { .cmd = quit },
+	['h'] = { .cmd = hola },
+	/* ['t'] = { .snd = "~/Music/test.mp3" }, */
+};
+
 int debug = 0;
-
+bool pause_mode = true;
 struct termios default_info;
-
-void use_canon (int enable)
-{
-	if (enable) {
-		tcsetattr(0, TCSANOW, &default_info);
-	} else {
-		struct termios info;
-		tcgetattr(0, &info);
-		info.c_lflag &= ~ICANON;
-		info.c_lflag &= ~ECHO;
-		info.c_cc[VMIN] = 1;
-		info.c_cc[VTIME] = 0;
-		tcsetattr(0, TCSANOW, &info);
-	}
-}
-
 struct mpd_connection *conn = NULL;
 
-int use_mpd (int enable)
+
+/* COMANDOS */
+
+void toggle_pause ()
 {
-	if (enable) {
-		if (conn) return -1;
-		conn = mpd_connection_new(NULL, 0, 0);
-		// error handling
-		if (conn == NULL) {
-			fprintf(stderr, "Out of memory\n");
-			exit(3);
-		}
-		if (mpd_connection_get_error(conn) != MPD_ERROR_SUCCESS) {
-			const char *m = mpd_connection_get_error_message(conn);
-			fprintf(stderr, "%s\n", m);
-			mpd_connection_free(conn);
-		}
-	} else {
-		if (conn == NULL) return -2;
-		mpd_connection_free(conn);
-		conn = NULL;
-	}
-	return 0;
+	if (!mpd_run_pause(conn, pause_mode))
+		clean_exit(10);
+	else pause_mode = !pause_mode;
 }
+
+void quit ()
+{
+	clean_exit(0);
+}
+
+void hola ()
+{
+	fprintf(stdout, "hola wenas\n");
+}
+
+
+/* FUNCIONES INTERNAS */
 
 void clean_exit (int code)
 {
@@ -64,38 +70,57 @@ void handle_int (int signum)
 	clean_exit(2);
 }
 
-union key_action {
-	const char *f;
-	void (*c)(void);
-};
-
-bool pause_mode = true;
-
-void toggle_pause () {
-	if (!mpd_run_pause(conn, pause_mode))
-		clean_exit(10);
-	else pause_mode = !pause_mode;
+int use_canon (int enable)
+{
+	if (enable) {
+		return tcsetattr(0, TCSANOW, &default_info);
+	} else {
+		struct termios info;
+		tcgetattr(0, &info);
+		info.c_lflag &= ~ICANON;
+		info.c_lflag &= ~ECHO;
+		info.c_cc[VMIN] = 1;
+		info.c_cc[VTIME] = 0;
+		return tcsetattr(0, TCSANOW, &info);
+	}
 }
 
-void quit () {
-	clean_exit(0);
+int use_mpd (int enable)
+{
+	if (enable) {
+		if (conn) return -2;
+		conn = mpd_connection_new(NULL, 0, 0);
+		// error handling
+		if (conn == NULL) {
+			fprintf(stderr, "[ERROR] Out of memory\n");
+			return -1;
+		}
+		if (mpd_connection_get_error(conn) != MPD_ERROR_SUCCESS) {
+			const char *m = mpd_connection_get_error_message(conn);
+			fprintf(stderr, "[ERROR] %s\n", m);
+			mpd_connection_free(conn);
+			conn = NULL;
+			return -1;
+		}
+	} else {
+		if (conn == NULL) return -2;
+		mpd_connection_free(conn);
+		conn = NULL;
+	}
+	return 0;
 }
 
-union key_action action[] = {
-	['p'] = { .c = toggle_pause },
-	['q'] = { .c = quit },
-};
-
-const union key_action *translate (char code)
+union key_action *translate (char code)
 {
 	if (debug) fprintf(stdout, "[DEBUG] # %d\n", code);
 	if (code < 0 || code >= LENGTH(action)) return NULL;
 	union key_action *ka = &action[code];
-	if (ka && ka->c) ka->c();
+	if (ka && ka->cmd) ka->cmd();
 	return ka;
 }
 
-int main (int argc, char *argv[]) {
+int main (int argc, char *argv[])
+{
 	struct sigaction sa = {0};
 	sa.sa_handler = &handle_int;
 	int res = sigaction(SIGINT, &sa, NULL);
@@ -106,8 +131,8 @@ int main (int argc, char *argv[]) {
 	}
 
 	tcgetattr(0, &default_info);
-	use_canon(0);
-	use_mpd(1);
+	if (use_canon(0) < 0 || use_mpd(1) < 0)
+		clean_exit(1);
 
 	fprintf(stdout, "Pulsa CTRL-C para salir.\n");
 
