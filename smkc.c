@@ -8,30 +8,45 @@
 
 #define LENGTH(a) (sizeof(a)/sizeof(a[0]))
 
+#define CHECK(f) if (!(f)
+#define WARN(msg) fprintf(stderr, "[WARNING] %s\n", msg)
+#define ERROR(msg) fprintf(stderr, "[ERROR] %s\n", msg)
+
+#define KEY_CMD(c) { .type = command, .u.cmd = c }
+#define KEY_SNG(s) { .type = song, .u.sng = s }
+
 int use_canon (int enable);
 int use_mpd (int enable);
 void clean_exit (int code);
 void handle_int (int signum);
-union key_action *translate (char code);
+struct key_action *translate (char code);
+void run_song (const char *title);
 
 void quit ();
 void toggle_pause ();
 void hola ();
 
-union key_action {
-	const char *snd; // ruta de un archivo de audio
-	void (*cmd)(); // dirección de una función
+enum key_action_type { command, song };
+
+struct key_action {
+	enum key_action_type type;
+	union {
+		const char *sng; // título de una pista de audio
+		void (*cmd)(); // dirección de una función (comando)
+	} u;
 };
 
-union key_action action[] = {
-	['p'] = { .cmd = toggle_pause },
-	['q'] = { .cmd = quit },
-	['h'] = { .cmd = hola },
-	/* ['t'] = { .snd = "~/Music/test.mp3" }, */
+struct key_action action[] = {
+	['p'] = KEY_CMD(toggle_pause),
+	['q'] = KEY_CMD(quit),
+	['h'] = KEY_CMD(hola),
+	['k'] = KEY_SNG("kletka"),
+	['s'] = KEY_SNG("kommersanty"),
+	['t'] = KEY_SNG("last wish"),
 };
 
 int debug = 0;
-bool pause_mode = true;
+bool pause_mode = false;
 struct termios default_info;
 struct mpd_connection *conn = NULL;
 
@@ -40,9 +55,30 @@ struct mpd_connection *conn = NULL;
 
 void toggle_pause ()
 {
-	if (!mpd_run_pause(conn, pause_mode))
-		clean_exit(10);
-	else pause_mode = !pause_mode;
+	struct mpd_status *status = mpd_run_status(conn);
+	if (!status) {
+		ERROR("Could not get status.");
+		return;
+	}
+
+	enum mpd_state state = mpd_status_get_state(status);
+	bool ret;
+	switch (state) {
+	case MPD_STATE_STOP:
+		ret = mpd_run_play(conn);
+		break;
+	case MPD_STATE_PLAY:
+		ret = mpd_run_pause(conn, true);
+		break;
+	case MPD_STATE_PAUSE:
+		ret = mpd_run_pause(conn, false);
+		break;
+	default:
+		break;
+	}
+	if (!ret) {
+		WARN("Could not toggle playback.");
+	}
 }
 
 void quit ()
@@ -68,6 +104,58 @@ void clean_exit (int code)
 void handle_int (int signum)
 {
 	clean_exit(2);
+}
+
+void run_song (const char *title) {
+	bool ret;
+	ret = mpd_run_clear(conn);
+	if (!ret) WARN("Could not clear the queue.");
+
+	ret = mpd_search_db_songs(conn, false);
+	if (!ret) {
+		ERROR("Could not specify db search.");
+		return;
+	}
+
+	ret = mpd_search_add_tag_constraint(conn,
+					MPD_OPERATOR_DEFAULT,
+					MPD_TAG_TITLE,
+					title);
+	if (!ret) {
+		ERROR("Could not add search constraint.");
+		return;
+	}
+
+	ret = mpd_search_commit(conn);
+	if (!ret) {
+		ERROR("Could not commmit search.");
+		return;
+	}
+
+	struct mpd_song *s = mpd_recv_song(conn);
+	if (!s) {
+		ERROR("Search is empty. Song not received.");
+		return;
+	}
+
+	const char *uri = mpd_song_get_uri(s);
+	if (!uri) {
+		ERROR("Could not get song uri.");
+		return;
+	}
+	if (debug) fprintf(stdout, "[DEBUG] URI: %s\n", uri);
+
+	ret = mpd_run_add(conn, uri);
+	if (!ret) {
+		ERROR("Could not add song to queue.");
+		return;
+	}
+
+	ret = mpd_run_play(conn);
+	if (!ret) {
+		ERROR("Could not begin playback.");
+		return;
+	}
 }
 
 int use_canon (int enable)
@@ -110,12 +198,24 @@ int use_mpd (int enable)
 	return 0;
 }
 
-union key_action *translate (char code)
+struct key_action *translate (char code)
 {
 	if (debug) fprintf(stdout, "[DEBUG] # %d\n", code);
 	if (code < 0 || code >= LENGTH(action)) return NULL;
-	union key_action *ka = &action[code];
-	if (ka && ka->cmd) ka->cmd();
+
+	struct key_action *ka = &action[code];
+	if (!ka) return NULL;
+
+	switch (ka->type) {
+	case command:
+		ka->u.cmd();
+		break;
+	case song:
+		run_song(ka->u.sng);
+		break;
+	default:
+		break;
+	}
 	return ka;
 }
 
